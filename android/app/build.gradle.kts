@@ -1,9 +1,23 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
+
+// local.properties 에서 REFLECT_BACKEND_URL / REFLECT_API_KEY 직접 로드
+// (Android Gradle Plugin 은 sdk.dir 만 자동 처리하므로 명시적으로 읽어야 함)
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun localProp(key: String, default: String): String =
+    localProps.getProperty(key)
+        ?: System.getenv(key)
+        ?: (project.findProperty(key) as String?)
+        ?: default
 
 android {
     namespace = "com.namhyun.reflect"
@@ -13,14 +27,14 @@ android {
         applicationId = "com.namhyun.reflect"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 101
+        versionName = "0.1.1"
 
-        // BuildConfig 로 백엔드 URL/API_KEY 주입 — local.properties 에 둠
-        val backendUrl: String = project.findProperty("REFLECT_BACKEND_URL") as String?
-            ?: "https://reflect-backend.hyun-752.workers.dev"
-        val apiKey: String = project.findProperty("REFLECT_API_KEY") as String?
-            ?: ""
+        val backendUrl = localProp("REFLECT_BACKEND_URL", "https://reflect-backend.hyun-752.workers.dev")
+        val apiKey = localProp("REFLECT_API_KEY", "")
+        if (apiKey.isEmpty()) {
+            logger.warn("⚠️  REFLECT_API_KEY missing — set it in local.properties")
+        }
 
         buildConfigField("String", "BACKEND_URL", "\"$backendUrl\"")
         buildConfigField("String", "API_KEY", "\"$apiKey\"")
