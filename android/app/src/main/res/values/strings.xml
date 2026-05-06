@@ -1,0 +1,34 @@
+<resources>
+    <string name="app_name">Reflect</string>
+    <string name="notification_listener_label">Reflect 알림</string>
+    <string name="suggestion_channel_name">답장 추천</string>
+    <string name="suggestion_channel_desc">메시지 도착 시 추천 답변을 알림으로 표시</string>
+
+    <!-- 셋업 -->
+    <string name="setup_subtitle">권한 세 개만 켜면 끝</string>
+    <string name="step_notification_access">알림 읽기</string>
+    <string name="step_notification_access_desc">메신저 알림을 읽을 수 있어야 답장을 추천할 수 있어</string>
+    <string name="step_post_notifications">알림 표시</string>
+    <string name="step_post_notifications_desc">추천 답변을 알림으로 보여주는 데 필요</string>
+    <string name="step_battery">배터리 최적화 제외</string>
+    <string name="step_battery_desc">백그라운드에서 끊기지 않도록 권장</string>
+    <string name="grant">허용</string>
+    <string name="granted">허용됨</string>
+
+    <!-- 준비 -->
+    <string name="ready_title">준비 완료</string>
+    <string name="ready_desc">메시지가 오면 답장 후보를 알림으로 보여줄게</string>
+
+    <!-- 테스트 -->
+    <string name="test_section">테스트</string>
+    <string name="test_hint">받았다고 가정할 메시지</string>
+    <string name="test_run">답장 받아보기</string>
+    <string name="test_running">생성 중</string>
+
+    <!-- 업데이트 -->
+    <string name="update_available">새 버전 %1$s</string>
+    <string name="update_now">업데이트</string>
+
+    <!-- 종료 -->
+    <string name="back_to_exit">한 번 더 누르면 종료</string>
+</resources>

@@ -1,0 +1,22 @@
+name = "reflect-backend"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# 시크릿은 wrangler secret put 으로 별도 설정 (커밋 X)
+#   SUPABASE_URL
+#   SUPABASE_SECRET_KEY
+#   VOYAGE_API_KEY
+#   ANTHROPIC_API_KEY
+#   API_KEY        ← 안드로이드 앱이 보낼 인증 토큰
+
+[vars]
+OWNER_NAME = "남현"
+OWNER_PERSONA = "캐주얼하고 직설적, 이모티콘 가끔 사용"
+CLAUDE_MODEL = "claude-haiku-4-5"
+VOYAGE_MODEL = "voyage-multilingual-2"
+RAG_TOP_K = "10"
+
+# Observability
+[observability]
+enabled = true

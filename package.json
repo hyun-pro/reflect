@@ -1,0 +1,23 @@
+{
+  "name": "reflect",
+  "version": "0.1.0",
+  "description": "Personal reply suggestion engine — clones your messaging voice via RAG",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsx scripts/sanity_check.ts",
+    "parse": "tsx scripts/parse_kakao.ts",
+    "embed": "tsx scripts/embed_upload.ts",
+    "test:reply": "tsx scripts/test_reply.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.0",
+    "@supabase/supabase-js": "^2.50.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

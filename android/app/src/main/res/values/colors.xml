@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Background ramp (dark) -->
+    <color name="bg_base">#FF0A0E1A</color>
+    <color name="bg_surface">#FF141828</color>
+    <color name="bg_surface_high">#FF1C2236</color>
+    <color name="bg_surface_press">#FF252C44</color>
+
+    <!-- Foreground -->
+    <color name="fg_primary">#FFEDF1FA</color>
+    <color name="fg_secondary">#FFB7BFD2</color>
+    <color name="fg_tertiary">#FF7C849A</color>
+    <color name="fg_dim">#FF4A5168</color>
+
+    <!-- Accent -->
+    <color name="accent_primary">#FF7BA8FF</color>
+    <color name="accent_subtle">#332F73E2</color>
+    <color name="accent_press">#FF94B7FF</color>
+
+    <!-- Status -->
+    <color name="status_ok">#FF52D4A4</color>
+    <color name="status_warn">#FFFFB36B</color>
+    <color name="status_err">#FFFF6B7B</color>
+
+    <!-- Divider -->
+    <color name="divider">#1AFFFFFF</color>
+
+    <!-- Launcher background -->
+    <color name="launcher_bg">#FF0A0E1A</color>
+</resources>
