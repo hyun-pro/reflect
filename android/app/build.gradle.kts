@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
 }
 
 // local.properties 에서 REFLECT_BACKEND_URL / REFLECT_API_KEY 직접 로드
@@ -27,8 +28,8 @@ android {
         applicationId = "com.namhyun.reflect"
         minSdk = 26
         targetSdk = 35
-        versionCode = 103
-        versionName = "0.1.3"
+        versionCode = 104
+        versionName = "0.1.4"
 
         val backendUrl = localProp("REFLECT_BACKEND_URL", "https://reflect-backend.hyun-752.workers.dev")
         val apiKey = localProp("REFLECT_API_KEY", "")
@@ -90,4 +91,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
 }
