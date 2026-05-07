@@ -29,7 +29,30 @@ object BackendApi {
     private val baseUrl: String = BuildConfig.BACKEND_URL.trimEnd('/')
     private val apiKey: String = BuildConfig.API_KEY
 
+    private suspend fun <T> withBackoff(
+        attempts: Int = 3,
+        baseDelayMs: Long = 400L,
+        block: suspend () -> T,
+    ): T {
+        var lastError: Throwable? = null
+        for (i in 0 until attempts) {
+            try { return block() } catch (e: Throwable) {
+                lastError = e
+                val msg = e.message ?: ""
+                val transient = msg.contains("429") || msg.contains("5") || e is java.io.IOException
+                if (!transient || i == attempts - 1) throw e
+                val jitter = (Math.random() * 200).toLong()
+                kotlinx.coroutines.delay(baseDelayMs * (1L shl i) + jitter)
+            }
+        }
+        throw lastError!!
+    }
+
     suspend fun suggest(req: SuggestRequest): Result<SuggestResponse> = withContext(Dispatchers.IO) {
+        if (apiKey.isEmpty()) {
+            Log.e(TAG, "API_KEY empty — local.properties 의 REFLECT_API_KEY 가 빠졌거나 빌드 시 안 박힘")
+            return@withContext Result.failure(IllegalStateException("API_KEY missing"))
+        }
         val body = json.encodeToString(req).toRequestBody(JSON)
         val request = Request.Builder()
             .url("$baseUrl/api/suggest")
@@ -37,13 +60,15 @@ object BackendApi {
             .post(body)
             .build()
         runCatching {
-            client.newCall(request).execute().use { resp ->
-                val raw = resp.body?.string().orEmpty()
-                if (!resp.isSuccessful) {
-                    Log.w(TAG, "suggest failed ${resp.code}: $raw")
-                    error("suggest ${resp.code}")
+            withBackoff {
+                client.newCall(request).execute().use { resp ->
+                    val raw = resp.body?.string().orEmpty()
+                    if (!resp.isSuccessful) {
+                        Log.w(TAG, "suggest failed ${resp.code}: $raw")
+                        error("suggest ${resp.code}: $raw")
+                    }
+                    json.decodeFromString<SuggestResponse>(raw)
                 }
-                json.decodeFromString<SuggestResponse>(raw)
             }
         }.onFailure { Log.w(TAG, "suggest error", it) }
     }
@@ -58,6 +83,22 @@ object BackendApi {
         runCatching {
             client.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) error("ingest ${resp.code}")
+            }
+        }
+    }
+
+    suspend fun stats(): Result<StatsResponse> = withContext(Dispatchers.IO) {
+        if (apiKey.isEmpty()) return@withContext Result.failure(IllegalStateException("API_KEY missing"))
+        val request = Request.Builder()
+            .url("$baseUrl/api/stats")
+            .header("X-API-Key", apiKey)
+            .get()
+            .build()
+        runCatching {
+            client.newCall(request).execute().use { resp ->
+                val raw = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) error("stats ${resp.code}")
+                json.decodeFromString<StatsResponse>(raw)
             }
         }
     }

@@ -29,33 +29,42 @@ class ReplyActionReceiver : BroadcastReceiver() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    override fun onReceive(context: Context, intent: Intent) {
+    override fun onReceive(context: Context, intent: Intent) = runCatching {
+        innerReceive(context, intent)
+    }.onFailure { Log.w(TAG, "reply receiver", it) }.let { Unit }
+
+    private fun innerReceive(context: Context, intent: Intent) {
         val notifKey = intent.getStringExtra(EXTRA_NOTIFICATION_KEY) ?: return
         val pkg = intent.getStringExtra(EXTRA_PACKAGE) ?: return
         val contact = intent.getStringExtra(EXTRA_CONTACT)
-        val replyText = intent.getStringExtra(EXTRA_REPLY_TEXT) ?: return
+        val incoming = intent.getStringExtra(EXTRA_INCOMING) ?: ""
+        val suggested = intent.getStringExtra(EXTRA_REPLY_TEXT) ?: return
 
-        val sent = sendReplyToOriginal(context, notifKey, replyText)
+        // RemoteInput 으로 사용자가 수정한 최종 텍스트가 들어있을 수 있음 — 있으면 그것을, 없으면 추천 텍스트
+        val userEdited = androidx.core.app.RemoteInput.getResultsFromIntent(intent)
+            ?.getCharSequence(KEY_USER_REPLY)
+            ?.toString()
+        val finalText = userEdited?.takeIf { it.isNotBlank() } ?: suggested
+
+        val sent = sendReplyToOriginal(context, notifKey, finalText)
         if (sent) {
-            Toast.makeText(context, "답장 발송: $replyText".take(60), Toast.LENGTH_SHORT).show()
-            // 자기 자신 알림 dismiss
+            Toast.makeText(context, "발송: ${finalText.take(40)}", Toast.LENGTH_SHORT).show()
             val id = (pkg + notifKey).hashCode()
             context.getSystemService(NotificationManager::class.java).cancel(id)
-            // 백엔드 ingest (자동 학습)
+            // 자가학습: 사용자가 직접 수정한 답장을 RAG 에 추가 (수정 안 했어도 사용한 답장이 좋은 신호)
             scope.launch {
                 BackendApi.ingest(
                     IngestRequest(
                         app = TargetApps.appKey(pkg),
                         contact = contact,
-                        incoming_message = "", // listener 에서 따로 들고와도 됨
-                        my_reply = replyText,
+                        incoming_message = incoming,
+                        my_reply = finalText,
                     )
                 )
             }
         } else {
-            // RemoteInput 못 찾으면 클립보드로 폴백
-            CopyToClipboardReceiver.copy(context, replyText)
-            Toast.makeText(context, "답장 못 보내서 클립보드 복사함", Toast.LENGTH_SHORT).show()
+            CopyToClipboardReceiver.copy(context, finalText)
+            Toast.makeText(context, "답장 못 보냄, 클립보드에 복사함", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -107,7 +116,9 @@ class ReplyActionReceiver : BroadcastReceiver() {
         const val EXTRA_NOTIFICATION_KEY = "notification_key"
         const val EXTRA_PACKAGE = "package"
         const val EXTRA_CONTACT = "contact"
+        const val EXTRA_INCOMING = "incoming_message"
         const val EXTRA_REPLY_TEXT = "reply_text"
+        const val KEY_USER_REPLY = "user_reply_text"
     }
 }
 

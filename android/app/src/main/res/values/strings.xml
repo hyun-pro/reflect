@@ -31,4 +31,7 @@
 
     <!-- 종료 -->
     <string name="back_to_exit">한 번 더 누르면 종료</string>
+
+    <!-- 접근성 -->
+    <string name="accessibility_desc">카톡/인스타에서 본인이 직접 보낸 답장을 자동으로 학습합니다. 메시지 내용은 백엔드(Reflect Worker)로만 전송되며 외부 노출 없음.</string>
 </resources>

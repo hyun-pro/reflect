@@ -5,12 +5,16 @@ export interface Env {
   VOYAGE_API_KEY: string;
   ANTHROPIC_API_KEY: string;
   API_KEY: string;
+  GITHUB_TOKEN?: string;
+  OPENAI_API_KEY?: string;
   // Vars
   OWNER_NAME: string;
   OWNER_PERSONA: string;
   CLAUDE_MODEL: string;
   VOYAGE_MODEL: string;
   RAG_TOP_K: string;
+  GITHUB_OWNER: string;
+  GITHUB_REPO: string;
 }
 
 export interface SuggestRequest {

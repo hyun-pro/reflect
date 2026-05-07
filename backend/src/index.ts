@@ -1,9 +1,10 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { bearerAuth } from 'hono/bearer-auth';
-import type { Env, SuggestRequest, IngestRequest, VersionResponse } from './types';
+import type { Env, SuggestRequest, IngestRequest } from './types';
 import { generateSuggestions } from './suggest';
 import { ingestReply } from './ingest';
+import { fetchLatestVersion } from './version';
+import { fetchStats } from './stats';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -46,17 +47,38 @@ app.post('/api/ingest', async (c) => {
   }
 });
 
-// GET /api/version — APK 자동 업데이트 체크
-app.get('/api/version', (c) => {
-  // TODO: GitHub Releases API 연동으로 동적화 가능. 일단 하드코딩
-  const response: VersionResponse = {
-    latest_version: 'v0.1.0',
-    latest_version_code: 1,
-    apk_url: 'https://github.com/CHANGE_ME/reflect-android/releases/latest/download/reflect.apk',
-    changelog: '초기 빌드',
-    force_update: false,
-  };
-  return c.json(response);
+// GET /api/stats — 학습 통계
+app.get('/api/stats', async (c) => {
+  try {
+    const stats = await fetchStats(c.env);
+    return c.json(stats);
+  } catch (e: any) {
+    console.error('[/api/stats]', e);
+    return c.json({ error: e?.message ?? String(e) }, 500);
+  }
+});
+
+// GET /api/version — GitHub Releases 에서 latest 동적 조회
+app.get('/api/version', async (c) => {
+  try {
+    const v = await fetchLatestVersion(c.env);
+    return c.json(v);
+  } catch (e: any) {
+    console.error('[/api/version]', e);
+    return c.json({ error: e?.message ?? String(e) }, 500);
+  }
+});
+
+// GET /apk/latest — 인증 없이 최신 APK 로 redirect (폰에서 첫 설치용)
+//   /api/* 가 아니라 /apk/* 경로라 X-API-Key 미들웨어 안 탐
+app.get('/apk/latest', async (c) => {
+  try {
+    const v = await fetchLatestVersion(c.env);
+    return c.redirect(v.apk_url, 302);
+  } catch (e: any) {
+    console.error('[/apk/latest]', e);
+    return c.text(`error: ${e?.message ?? e}`, 500);
+  }
 });
 
 export default app;

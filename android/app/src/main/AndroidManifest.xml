@@ -16,11 +16,15 @@
     <!-- 부팅 후 자동 시작 (NotificationListener 재바인드) -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- 포그라운드 서비스 (선택) -->
+    <!-- 포그라운드 서비스 (백그라운드 유지용) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <!-- APK 자동 업데이트용 설치 권한 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- 배터리 최적화 화이트리스트 다이얼로그 띄우기 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:name=".ReflectApp"
@@ -43,6 +47,20 @@
             </intent-filter>
         </activity>
 
+        <!-- 카톡 등에서 본인 답장 길게 누름 → 공유 → Reflect 로 자가학습 -->
+        <activity
+            android:name=".ShareIngestActivity"
+            android:exported="true"
+            android:label="Reflect 학습"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <!-- 메신저 알림 가로채기 -->
         <service
             android:name=".service.ReflectNotificationListener"
@@ -56,6 +74,40 @@
                 android:name="android.service.notification.default_filter_types"
                 android:value="conversations|alerting" />
         </service>
+
+        <!-- 자동 학습용 AccessibilityService — 사용자가 카톡 등에서 직접 보낸 답장 캐치 -->
+        <service
+            android:name=".service.ReflectAccessibilityService"
+            android:exported="true"
+            android:label="Reflect 자동 학습"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/reflect_accessibility_config" />
+        </service>
+
+        <!-- 백그라운드 KeepAlive (OEM 절전 정책 우회) -->
+        <service
+            android:name=".service.KeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="background_message_reply_assistant" />
+        </service>
+
+        <!-- 부팅 후 ForegroundService 자동 시작 -->
+        <receiver
+            android:name=".service.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- 추천 답변 알림에서 답장 버튼 탭 시 받아내는 receiver -->
         <receiver

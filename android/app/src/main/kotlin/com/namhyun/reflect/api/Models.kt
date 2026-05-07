@@ -36,3 +36,10 @@ data class VersionResponse(
     val changelog: String = "",
     val force_update: Boolean = false,
 )
+
+@Serializable
+data class StatsResponse(
+    val total: Int = 0,
+    val today: Int = 0,
+    val thisWeek: Int = 0,
+)

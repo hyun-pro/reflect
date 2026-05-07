@@ -16,6 +16,8 @@ OWNER_PERSONA = "캐주얼하고 직설적, 이모티콘 가끔 사용"
 CLAUDE_MODEL = "claude-haiku-4-5"
 VOYAGE_MODEL = "voyage-multilingual-2"
 RAG_TOP_K = "10"
+GITHUB_OWNER = "hyun-pro"
+GITHUB_REPO = "reflect"
 
 # Observability
 [observability]
