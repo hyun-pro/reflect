@@ -1,0 +1,123 @@
+name: Release APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (예: 0.1.32)'
+        required: true
+        default: '0.1.32'
+      notes:
+        description: '릴리즈 노트 (선택)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build & Release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties', 'android/gradle/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+
+      - name: Bump version in build.gradle.kts
+        run: |
+          V="${{ github.event.inputs.version }}"
+          IFS='.' read -r MAJ MIN PAT <<< "$V"
+          CODE=$((MAJ * 10000 + MIN * 100 + PAT))
+          echo "versionName=$V versionCode=$CODE"
+          sed -i -E "s/versionCode = [0-9]+/versionCode = $CODE/" android/app/build.gradle.kts
+          sed -i -E "s/versionName = \"[^\"]*\"/versionName = \"$V\"/" android/app/build.gradle.kts
+          grep -E "versionCode|versionName" android/app/build.gradle.kts | head -2
+
+      - name: Build debug APK
+        working-directory: android
+        env:
+          REFLECT_BACKEND_URL: ${{ vars.REFLECT_BACKEND_URL != '' && vars.REFLECT_BACKEND_URL || 'https://reflect-backend.hyun-752.workers.dev' }}
+          REFLECT_API_KEY: ${{ secrets.REFLECT_API_KEY }}
+        run: |
+          if [ -z "$REFLECT_API_KEY" ]; then
+            echo "::error::REFLECT_API_KEY 가 GitHub Secret 에 없음. Settings > Secrets and variables > Actions 에서 추가하세요."
+            exit 1
+          fi
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Rename APK
+        run: |
+          V="${{ github.event.inputs.version }}"
+          SRC=android/app/build/outputs/apk/debug/app-debug.apk
+          ls -la "$SRC"
+          cp "$SRC" "reflect-v$V.apk"
+          cp "$SRC" "reflect.apk"
+          ls -la reflect-v$V.apk reflect.apk
+
+      - name: Commit version bump
+        run: |
+          V="${{ github.event.inputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet android/app/build.gradle.kts; then
+            echo "version unchanged, skipping commit"
+          else
+            git add android/app/build.gradle.kts
+            git commit -m "Release v$V"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V="${{ github.event.inputs.version }}"
+          NOTES_INPUT="${{ github.event.inputs.notes }}"
+          if [ -z "$NOTES_INPUT" ]; then
+            NOTES="자동 빌드 APK (debug 서명). 부트스트랩 + 학습 화면 + DPO 캡처 포함."
+          else
+            NOTES="$NOTES_INPUT"
+          fi
+          # 기존 tag 가 있으면 release만 생성, 없으면 tag도 새로
+          if gh release view "v$V" >/dev/null 2>&1; then
+            echo "release v$V already exists, uploading new assets"
+            gh release upload "v$V" "reflect-v$V.apk" "reflect.apk" --clobber
+          else
+            gh release create "v$V" \
+              --title "v$V" \
+              --notes "$NOTES" \
+              "reflect-v$V.apk" "reflect.apk"
+          fi
+          echo ""
+          echo "✓ Release: $(gh release view v$V --json url -q .url)"
