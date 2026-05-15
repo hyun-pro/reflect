@@ -1,43 +1,66 @@
 package com.namhyun.reflect.service
 
 import android.accessibilityservice.AccessibilityService
+import android.os.Build
+import android.os.Bundle
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import com.namhyun.reflect.api.BackendApi
 import com.namhyun.reflect.api.FeedbackRejectRequest
 import com.namhyun.reflect.api.IngestRequest
 import com.namhyun.reflect.data.InboxRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
- * 카톡/인스타 등에서 사용자가 직접 입력+전송한 메시지를 자동 캐치 → /api/ingest.
+ * 두 가지 역할:
  *
- * 동작 휴리스틱:
- * 1. TYPE_VIEW_TEXT_CHANGED — 입력창 텍스트 변화. 마지막 비공백 텍스트를 lastInput 에 보관.
- * 2. TYPE_VIEW_CLICKED — content-description 이 "전송" 또는 "send" 포함하면 lastInput 을 발송된 것으로 간주 → ingest.
- * 3. 또는 입력창이 다음 텍스트 변화로 비워졌을 때도 발송 추정 (보조 휴리스틱).
+ *  1. **자동 학습 캐치** (기존 동작): 사용자가 메신저에서 직접 친 답장을 ingest/DPO 로 학습.
+ *     - TYPE_VIEW_TEXT_CHANGED: lastInput 갱신
+ *     - TYPE_VIEW_CLICKED: 전송 버튼 추정 시 lastInput 발송된 것으로 간주
+ *     - 입력창이 비워지면 발송 추정
  *
- * 권한 무거우므로 사용자 명시 옵트인 필요. 시스템이 가끔 자동 OFF 시킴.
+ *  2. **Floating overlay 트리거** (신규): 답장창 열림/닫힘 감지 + 추천 commit.
+ *     - TYPE_WINDOW_STATE_CHANGED: 어느 메신저 어느 화면에 있는지 추적
+ *     - TYPE_VIEW_FOCUSED on EditText: 답장창 활성 → OverlayBus.setActive
+ *     - 메신저 떠나면 OverlayBus.clearActive + OverlayService 정리
+ *     - OverlayBus.commitRequests collect → focused EditText 에 ACTION_SET_TEXT
  */
 class ReflectAccessibilityService : AccessibilityService() {
+
     private val scope = CoroutineScope(
         SupervisorJob() + Dispatchers.IO +
             kotlinx.coroutines.CoroutineExceptionHandler { _, e -> Log.w(TAG, "scope", e) }
     )
 
+    // ── 학습 캐치용 상태 (기존)
     @Volatile private var lastInput: String = ""
     @Volatile private var lastInputAt: Long = 0L
 
-    private val targetPackages = setOf(
-        "com.kakao.talk",
-        "com.instagram.android",
-        "com.facebook.orca",
-        "com.naver.line",
-        "org.telegram.messenger",
-    )
+    // ── 오버레이용 상태
+    @Volatile private var currentPkg: String? = null
+    @Volatile private var currentContact: String? = null
+    @Volatile private var lastActivePostedAt: Long = 0L
+    @Volatile private var inputFocused: Boolean = false
+    private var commitJob: Job? = null
+
+    private val targetPackages: Set<String> get() = TargetApps.PACKAGES
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        commitJob?.cancel()
+        commitJob = scope.launch {
+            OverlayBus.commitRequests.collect { text ->
+                val ok = commitToFocusedEditText(text)
+                OverlayBus.reportCommitResult(ok)
+            }
+        }
+    }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         runCatching { handle(event) }.onFailure { Log.w(TAG, "event", it) }
@@ -46,22 +69,57 @@ class ReflectAccessibilityService : AccessibilityService() {
     private fun handle(event: AccessibilityEvent?) {
         if (event == null) return
         val pkg = event.packageName?.toString() ?: return
-        if (pkg !in targetPackages) return
+
+        // 메신저 떠나면 오버레이 정리
+        if (pkg !in targetPackages) {
+            if (currentPkg != null && pkg != "android" && pkg != applicationContext.packageName) {
+                onLeaveMessenger()
+            }
+            return
+        }
 
         when (event.eventType) {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                currentPkg = pkg
+                // 채팅방 제목 추출 시도
+                val contact = extractContactName()
+                if (!contact.isNullOrBlank()) currentContact = contact
+                refreshOverlayActive(pkg, currentContact)
+            }
+            AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
+                currentPkg = pkg
+                val src = event.source
+                val isEditable = src?.isEditable == true ||
+                    src?.className?.toString()?.contains("EditText", ignoreCase = true) == true
+                src?.recycle()
+                if (isEditable) {
+                    inputFocused = true
+                    val contact = currentContact ?: extractContactName()
+                    if (!contact.isNullOrBlank()) currentContact = contact
+                    refreshOverlayActive(pkg, currentContact)
+                } else if (inputFocused) {
+                    // 입력창 포커스 잃음 — 오버레이 유지 (사용자가 추천 누를 수 있도록)
+                }
+            }
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                // contact 가 아직 없으면 한 번 더 시도
+                if (currentContact.isNullOrBlank()) {
+                    val contact = extractContactName()
+                    if (!contact.isNullOrBlank()) {
+                        currentContact = contact
+                        refreshOverlayActive(pkg, currentContact)
+                    }
+                }
+            }
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
                 val text = event.text?.joinToString(" ")?.trim().orEmpty()
                 if (text.isNotEmpty() && text.length < 500) {
                     lastInput = text
                     lastInputAt = System.currentTimeMillis()
                 } else if (text.isEmpty() && lastInput.isNotBlank()) {
-                    // 입력창 비워짐 = 전송 추정 (또는 사용자가 지운 것)
                     val captured = lastInput
                     val age = System.currentTimeMillis() - lastInputAt
-                    if (age in 100..30_000) {
-                        // 0.1~30초 사이에 비워진 거면 전송으로 간주
-                        ingest(pkg, captured)
-                    }
+                    if (age in 100..30_000) ingest(pkg, captured)
                     lastInput = ""
                 }
             }
@@ -77,12 +135,175 @@ class ReflectAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun onLeaveMessenger() {
+        currentPkg = null
+        currentContact = null
+        inputFocused = false
+        OverlayBus.clearActive()
+        runCatching { ReflectOverlayService.stop(applicationContext) }
+    }
+
+    private fun refreshOverlayActive(pkg: String, contact: String?) {
+        val now = System.currentTimeMillis()
+        // 너무 자주 갱신되지 않도록 600ms throttle (단, 매칭된 inbox 가 바뀌면 통과)
+        if (now - lastActivePostedAt < 600) return
+        lastActivePostedAt = now
+
+        val appKey = TargetApps.appKey(pkg)
+        scope.launch {
+            // 1) contact 매칭 우선
+            val byContact = if (!contact.isNullOrBlank()) {
+                runCatching {
+                    InboxRepository.findRecentByContact(
+                        applicationContext, appKey, contact, 60 * 60 * 1000L
+                    )
+                }.getOrNull()
+            } else null
+
+            // 2) fallback — 같은 앱의 최근 미처리
+            val fallback = byContact ?: runCatching {
+                InboxRepository.findMostRecentPending(applicationContext, appKey, 30 * 60 * 1000L)
+            }.getOrNull()
+
+            val sourceId = fallback?.id ?: 0L
+            val suggestions = fallback?.let { InboxRepository.parseSuggestions(it.suggestionsJson) }
+                .orEmpty()
+
+            val active = OverlayBus.ActiveInput(
+                packageName = pkg,
+                appKey = appKey,
+                contact = fallback?.contact ?: contact,
+                incoming = fallback?.incoming,
+                suggestions = suggestions,
+                originSourceId = sourceId,
+            )
+            OverlayBus.setActive(active)
+            withContext(Dispatchers.Main) {
+                ReflectOverlayService.start(applicationContext)
+            }
+        }
+    }
+
+    /**
+     * 현재 활성 윈도우에서 채팅방 제목 추출.
+     * 휴리스틱: rootInActiveWindow 의 트리에서, "Toolbar" / "ActionBar" / "title" 비슷한 노드의 첫 TextView text.
+     * 실패해도 null 반환 (호출자가 알아서 폴백).
+     */
+    private fun extractContactName(): String? {
+        val root = runCatching { rootInActiveWindow }.getOrNull() ?: return null
+        try {
+            // 후보 노드 ID 들 (각 메신저별 흔한 형태)
+            val candidateIds = listOf(
+                "title", "toolbar_title", "action_bar_title",
+                "name", "contact_name", "chatroom_name", "title_text",
+            )
+            for (id in candidateIds) {
+                val nodes = runCatching {
+                    root.findAccessibilityNodeInfosByViewId(root.packageName.toString() + ":id/" + id)
+                }.getOrNull().orEmpty()
+                for (n in nodes) {
+                    val t = n.text?.toString()?.trim()
+                    if (!t.isNullOrBlank() && t.length in 1..40) return t
+                }
+            }
+            // 폴백: Toolbar/ActionBar 부모 안의 첫 TextView
+            return findFirstToolbarTitle(root)
+        } finally {
+            runCatching { root.recycle() }
+        }
+    }
+
+    private fun findFirstToolbarTitle(root: AccessibilityNodeInfo): String? {
+        val stack = ArrayDeque<AccessibilityNodeInfo>()
+        stack.addLast(root)
+        var depth = 0
+        while (stack.isNotEmpty() && depth < 2000) {
+            val node = stack.removeFirst()
+            depth++
+            val cls = node.className?.toString().orEmpty()
+            if (cls.contains("Toolbar") || cls.contains("ActionBar") || cls.contains("AppBar")) {
+                // 이 노드 자손에서 TextView 찾기
+                val found = findFirstNonEmptyTextView(node)
+                if (!found.isNullOrBlank()) return found
+            }
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let { stack.addLast(it) }
+            }
+        }
+        return null
+    }
+
+    private fun findFirstNonEmptyTextView(root: AccessibilityNodeInfo): String? {
+        val stack = ArrayDeque<AccessibilityNodeInfo>()
+        stack.addLast(root)
+        var n = 0
+        while (stack.isNotEmpty() && n < 200) {
+            val node = stack.removeFirst()
+            n++
+            val cls = node.className?.toString().orEmpty()
+            if (cls.contains("TextView") && !cls.contains("EditText")) {
+                val t = node.text?.toString()?.trim()
+                if (!t.isNullOrBlank() && t.length in 1..40) return t
+            }
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let { stack.addLast(it) }
+            }
+        }
+        return null
+    }
+
+    /**
+     * 현재 활성 윈도우의 focused EditText 에 ACTION_SET_TEXT.
+     * 실패하면 false. 자동 전송은 안 함 — 사용자가 확인 후 직접 전송.
+     */
+    private suspend fun commitToFocusedEditText(text: String): Boolean = withContext(Dispatchers.Main) {
+        val root = runCatching { rootInActiveWindow }.getOrNull() ?: return@withContext false
+        try {
+            val edit = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                ?: findFirstEditText(root)
+                ?: return@withContext false
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    val args = Bundle().apply {
+                        putCharSequence(
+                            AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                            text,
+                        )
+                    }
+                    val ok = edit.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+                    return@withContext ok
+                } else {
+                    return@withContext false
+                }
+            } finally {
+                runCatching { edit.recycle() }
+            }
+        } finally {
+            runCatching { root.recycle() }
+        }
+    }
+
+    private fun findFirstEditText(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val stack = ArrayDeque<AccessibilityNodeInfo>()
+        stack.addLast(root)
+        var n = 0
+        while (stack.isNotEmpty() && n < 2000) {
+            val node = stack.removeFirst()
+            n++
+            if (node.isEditable ||
+                node.className?.toString()?.contains("EditText", true) == true
+            ) return node
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let { stack.addLast(it) }
+            }
+        }
+        return null
+    }
+
     private fun ingest(pkg: String, text: String) {
         if (text.length < 2 || text.length > 500) return
         val app = TargetApps.appKey(pkg)
         scope.launch {
-            // 5분 이내 같은 앱의 가장 최근 미처리 추천이 있으면 DPO 페어로 처리.
-            // 사용자가 추천을 보지 않고(또는 봤어도 무시하고) 본인이 직접 친 답이라는 강력한 신호.
             val recent = runCatching {
                 InboxRepository.findMostRecentPending(applicationContext, app, 5 * 60 * 1000L)
             }.getOrNull()
@@ -109,12 +330,11 @@ class ReflectAccessibilityService : AccessibilityService() {
                 }
             }
 
-            // 폴백: 매핑 안 되면 일반 ingest (incoming 모르므로 placeholder)
             runCatching {
                 BackendApi.ingest(
                     IngestRequest(
                         app = app,
-                        contact = null,
+                        contact = currentContact,
                         incoming_message = "(접근성 자동 학습)",
                         my_reply = text,
                     )
@@ -125,6 +345,11 @@ class ReflectAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {}
+
+    override fun onDestroy() {
+        commitJob?.cancel()
+        super.onDestroy()
+    }
 
     companion object { private const val TAG = "ReflectA11y" }
 }

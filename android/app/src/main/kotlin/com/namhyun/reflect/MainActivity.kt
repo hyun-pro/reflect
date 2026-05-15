@@ -103,6 +103,20 @@ object Permissions {
         }
     }
 
+    fun isOverlayGranted(context: Context): Boolean = runCatching {
+        Settings.canDrawOverlays(context)
+    }.getOrDefault(false)
+
+    fun openOverlaySettings(context: Context) {
+        runCatching {
+            context.startActivity(
+                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+                    .setData(Uri.parse("package:${context.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }
+    }
+
     fun openBatteryOptimizationSettings(context: Context) {
         runCatching {
             val direct = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {

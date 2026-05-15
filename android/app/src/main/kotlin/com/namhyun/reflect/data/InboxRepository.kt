@@ -80,6 +80,43 @@ object InboxRepository {
             .maxByOrNull { it.arrivedAt }
     }
 
+    /**
+     * 같은 앱 + contact 매칭으로 가장 최근 미처리 항목.
+     * 오버레이가 답장창을 열었을 때 정확히 누구한테 보낼지 매칭하는 데 사용.
+     * contact 비교는 정규화(공백·괄호·이모지 제거) 후 양방향 부분일치.
+     */
+    fun findRecentByContact(
+        context: Context,
+        app: String,
+        contact: String,
+        maxAgeMs: Long,
+    ): InboxEntity? {
+        ensureLoaded(context)
+        val now = System.currentTimeMillis()
+        val target = normalizeContact(contact)
+        if (target.isBlank()) return null
+        return _items.value
+            .asSequence()
+            .filter { !it.handled && it.app == app }
+            .filter { maxAgeMs <= 0 || now - it.arrivedAt <= maxAgeMs }
+            .filter {
+                val n = normalizeContact(it.contact)
+                n == target || n.contains(target) || target.contains(n)
+            }
+            .maxByOrNull { it.arrivedAt }
+    }
+
+    private fun normalizeContact(s: String): String {
+        // 채팅방 제목은 카톡이 "이름 (2)" "이름 · 메시지 미리보기" 같은 꼬리를 붙임.
+        // 괄호 안 숫자, 가운뎃점 이후, 양 끝 공백 등을 제거해 비교 안정화.
+        return s
+            .replace(Regex("\\s*\\(\\d+\\)\\s*$"), "")
+            .replace(Regex("\\s*·.*$"), "")
+            .replace(Regex("[\\p{So}\\p{Sk}\\p{Cn}]"), "") // 이모지·심볼
+            .trim()
+            .lowercase()
+    }
+
     suspend fun add(
         context: Context,
         app: String,

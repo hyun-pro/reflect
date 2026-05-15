@@ -26,6 +26,9 @@
     <!-- 배터리 최적화 화이트리스트 다이얼로그 띄우기 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- 답장창 위에 floating 추천 띄우기 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <application
         android:name=".ReflectApp"
         android:allowBackup="false"
@@ -98,6 +101,11 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="background_message_reply_assistant" />
         </service>
+
+        <!-- 답장창 위 floating 추천 (Accessibility 가 트리거) -->
+        <service
+            android:name=".service.ReflectOverlayService"
+            android:exported="false" />
 
         <!-- 부팅 후 ForegroundService 자동 시작 -->
         <receiver

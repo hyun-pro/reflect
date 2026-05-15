@@ -33,5 +33,15 @@
     <string name="back_to_exit">한 번 더 누르면 종료</string>
 
     <!-- 접근성 -->
-    <string name="accessibility_desc">카톡/인스타에서 본인이 직접 보낸 답장을 자동으로 학습합니다. 메시지 내용은 백엔드(Reflect Worker)로만 전송되며 외부 노출 없음.</string>
+    <string name="accessibility_desc">카톡/인스타에서 답장창이 열리면 추천 답변을 띄우고, 본인이 직접 보낸 답장을 자동으로 학습합니다. 메시지 내용은 Reflect 백엔드로만 전송되며 외부 노출 없음.</string>
+
+    <!-- 오버레이 -->
+    <string name="step_overlay">답장창 위에 추천 띄우기</string>
+    <string name="step_overlay_desc">카톡/인스타 답장창 위에 작은 버튼을 띄워 추천을 한 번에 입력. 메시지 알림 안 켜도 됨.</string>
+    <string name="overlay_title">Reflect 추천</string>
+    <string name="overlay_loading">추천 만드는 중…</string>
+    <string name="overlay_empty">추천을 못 만들었어 — 다시 시도해줘</string>
+    <string name="overlay_no_context">최근 메시지를 못 찾았어. 알림을 한 번 다시 받으면 추천 떠올라.</string>
+    <string name="overlay_committed">입력창에 넣었어 — 확인 후 전송</string>
+    <string name="overlay_commit_failed">입력창을 못 찾았어 — 답장창을 한 번 탭하고 다시 눌러줘</string>
 </resources>

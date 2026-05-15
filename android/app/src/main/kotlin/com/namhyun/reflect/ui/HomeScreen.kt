@@ -82,6 +82,7 @@ fun HomeScreen() {
     var post by remember { mutableStateOf(Permissions.isPostNotificationsGranted(context)) }
     var battery by remember { mutableStateOf(Permissions.isIgnoringBatteryOptimizations(context)) }
     var accessibility by remember { mutableStateOf(Permissions.isAccessibilityEnabled(context)) }
+    var overlay by remember { mutableStateOf(Permissions.isOverlayGranted(context)) }
 
     var showAddLearn by remember { mutableStateOf(false) }
     var lastBack by remember { mutableLongStateOf(0L) }
@@ -111,6 +112,7 @@ fun HomeScreen() {
                 runCatching { post = Permissions.isPostNotificationsGranted(context) }
                 runCatching { battery = Permissions.isIgnoringBatteryOptimizations(context) }
                 runCatching { accessibility = Permissions.isAccessibilityEnabled(context) }
+                runCatching { overlay = Permissions.isOverlayGranted(context) }
             }
         }
         owner.lifecycle.addObserver(obs)
@@ -174,8 +176,16 @@ fun HomeScreen() {
             }
             item {
                 PermRow(
-                    title = "자동 학습 (선택)",
-                    desc = "카톡에서 본인이 보낸 답장 자동 학습. 권한 무거움 — 신뢰 시에만",
+                    title = "답장창 위 추천 (선택)",
+                    desc = "카톡/인스타 답장창이 열리면 작은 버튼을 띄워 추천을 한 번에 입력",
+                    granted = overlay,
+                    onGrant = { Permissions.openOverlaySettings(context) },
+                )
+            }
+            item {
+                PermRow(
+                    title = "자동 학습 + 오버레이 트리거 (선택)",
+                    desc = "답장창 열림 감지 + 본인이 보낸 답장 자동 학습. 위 \"답장창 위 추천\"과 함께 켜야 효과 최대",
                     granted = accessibility,
                     onGrant = { Permissions.openAccessibilitySettings(context) },
                 )
