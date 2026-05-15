@@ -55,6 +55,11 @@ android {
                 keyAlias = kAlias
                 keyPassword = kPass
             }
+            // 한국 OEM(삼성/LG) 폰들이 v1 서명 누락 시 "앱이 설치되지 않았습니다" 띄움.
+            // v1 + v2 + v3 모두 활성화해서 모든 폰 호환.
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
         }
     }
 
