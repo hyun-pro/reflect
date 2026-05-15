@@ -41,6 +41,23 @@ android {
         buildConfigField("String", "API_KEY", "\"$apiKey\"")
     }
 
+    // 고정 keystore — 기존 keystore 있으면 그걸로 서명, 없으면 안드로이드 기본 debug keystore.
+    // CI 에서 REFLECT_KEYSTORE_PATH 등 env 가 채워지면 그걸로 서명 (모든 빌드 일관 서명).
+    signingConfigs {
+        create("reflect") {
+            val ksPath = System.getenv("REFLECT_KEYSTORE_PATH") ?: ""
+            val ksPass = System.getenv("REFLECT_KEYSTORE_PASSWORD") ?: ""
+            val kAlias = System.getenv("REFLECT_KEY_ALIAS") ?: ""
+            val kPass = System.getenv("REFLECT_KEY_PASSWORD") ?: ""
+            if (ksPath.isNotEmpty() && file(ksPath).exists()) {
+                storeFile = file(ksPath)
+                storePassword = ksPass
+                keyAlias = kAlias
+                keyPassword = kPass
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -48,9 +65,17 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // env 있으면 고정 키, 없으면 debug 키
+            signingConfig = if (System.getenv("REFLECT_KEYSTORE_PATH").isNullOrEmpty())
+                signingConfigs.getByName("debug")
+            else signingConfigs.getByName("reflect")
         }
         debug {
-            applicationIdSuffix = ".debug"
+            // .debug suffix 제거 — release 패키지(com.namhyun.reflect)와 동일.
+            // 옛 .debug suffix 앱과 충돌 회피.
+            signingConfig = if (System.getenv("REFLECT_KEYSTORE_PATH").isNullOrEmpty())
+                signingConfigs.getByName("debug")
+            else signingConfigs.getByName("reflect")
         }
     }
 
