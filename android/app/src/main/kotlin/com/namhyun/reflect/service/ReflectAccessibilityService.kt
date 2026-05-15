@@ -70,9 +70,16 @@ class ReflectAccessibilityService : AccessibilityService() {
         if (event == null) return
         val pkg = event.packageName?.toString() ?: return
 
-        // 메신저 떠나면 오버레이 정리
+        // 메신저 떠나면 오버레이 정리. system_ui / keyboard / launcher 의 일시적
+        // 이벤트(키보드 열림 등)는 false-positive 이므로 WINDOW_STATE_CHANGED 만 신뢰.
         if (pkg !in targetPackages) {
-            if (currentPkg != null && pkg != "android" && pkg != applicationContext.packageName) {
+            val isStateChange = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+            val isOwnApp = pkg == applicationContext.packageName
+            val isTransient = pkg == "android" ||
+                pkg.startsWith("com.android.systemui") ||
+                pkg.contains("inputmethod") ||
+                pkg.contains("ime")
+            if (isStateChange && currentPkg != null && !isOwnApp && !isTransient) {
                 onLeaveMessenger()
             }
             return
@@ -166,6 +173,14 @@ class ReflectAccessibilityService : AccessibilityService() {
             }.getOrNull()
 
             val sourceId = fallback?.id ?: 0L
+
+            // 사용자가 명시 dismiss 한 inbox 면 안 띄움. 다음 새 메시지(다른 id)는 자동 활성.
+            if (OverlayDismissPrefs.isDismissed(applicationContext, sourceId)) {
+                Log.d(TAG, "dismissed: skip overlay for inbox=$sourceId")
+                OverlayBus.clearActive()
+                return@launch
+            }
+
             val suggestions = fallback?.let { InboxRepository.parseSuggestions(it.suggestionsJson) }
                 .orEmpty()
 

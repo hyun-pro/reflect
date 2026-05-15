@@ -177,7 +177,7 @@ fun HomeScreen() {
             item {
                 PermRow(
                     title = "답장창 위 추천 (선택)",
-                    desc = "카톡/인스타 답장창이 열리면 작은 버튼을 띄워 추천을 한 번에 입력",
+                    desc = "카톡/인스타 답장창 위 ✦ 버튼 — 탭=펼침, 길게=5분끄기, X=1시간끄기. 새 메시지 오면 자동 다시.",
                     granted = overlay,
                     onGrant = { Permissions.openOverlaySettings(context) },
                 )

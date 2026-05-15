@@ -37,7 +37,7 @@
 
     <!-- 오버레이 -->
     <string name="step_overlay">답장창 위에 추천 띄우기</string>
-    <string name="step_overlay_desc">카톡/인스타 답장창 위에 작은 버튼을 띄워 추천을 한 번에 입력. 메시지 알림 안 켜도 됨.</string>
+    <string name="step_overlay_desc">카톡/인스타 답장창 위에 작은 버튼. 길게 누르면 5분 끄기, X = 1시간 끄기. 새 메시지 오면 자동 다시 활성.</string>
     <string name="overlay_title">Reflect 추천</string>
     <string name="overlay_loading">추천 만드는 중…</string>
     <string name="overlay_empty">추천을 못 만들었어 — 다시 시도해줘</string>

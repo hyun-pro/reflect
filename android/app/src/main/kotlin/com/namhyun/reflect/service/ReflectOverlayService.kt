@@ -161,6 +161,10 @@ class ReflectOverlayService : Service() {
         }
 
         view.setOnTouchListener(BubbleDragListener(view, params))
+        view.setOnLongClickListener {
+            dismissCurrent(durationMs = 5L * 60 * 1000)
+            true
+        }
 
         runCatching { wm?.addView(view, params) }
             .onFailure { Log.w(TAG, "addView bubble", it); stopSelf(); return }
@@ -192,7 +196,10 @@ class ReflectOverlayService : Service() {
             width = (screenWidth() * 0.88f).toInt().coerceAtMost(dp(360))
         }
 
-        view.findViewById<View>(R.id.panel_close).setOnClickListener { collapsePanel() }
+        view.findViewById<View>(R.id.panel_close).setOnClickListener {
+            // X = 이 메시지 끄기 (다음 새 메시지 오면 자동 활성, 또는 1시간 보호막)
+            dismissCurrent(durationMs = 60L * 60 * 1000)
+        }
         view.setOnClickListener { /* swallow */ }
 
         runCatching { wm?.addView(view, params) }
@@ -346,6 +353,21 @@ class ReflectOverlayService : Service() {
 
     private fun togglePanel() {
         if (panelExpanded) collapsePanel() else expandPanel()
+    }
+
+    /**
+     * 사용자 명시 dismiss. 같은 inbox id 가 들어오면 막힘.
+     * @param durationMs 시간 기반 보호막. 0이면 inbox id 만으로 판정.
+     */
+    private fun dismissCurrent(durationMs: Long) {
+        val id = currentActive?.originSourceId ?: 0L
+        OverlayDismissPrefs.dismissForInbox(applicationContext, id, durationMs)
+        OverlayBus.clearActive()
+        removeBubble()
+        removePanel()
+        // service 자체는 살려둠 — AccessibilityService 가 다음 활성 신호 보내면 다시 켜짐.
+        // 명시 dismiss 후 자원 절약하고 싶으면 stopSelf().
+        stopSelf()
     }
 
     private fun screenWidth(): Int = resources.displayMetrics.widthPixels
