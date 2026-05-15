@@ -66,6 +66,20 @@ object InboxRepository {
         return _items.value.count { !it.handled }
     }
 
+    /**
+     * 같은 앱의 가장 최근 미처리 inbox 항목. DPO 페어 매핑용.
+     * @param maxAgeMs 0이면 무제한, 양수면 maxAgeMs 이내만.
+     */
+    fun findMostRecentPending(context: Context, app: String, maxAgeMs: Long): InboxEntity? {
+        ensureLoaded(context)
+        val now = System.currentTimeMillis()
+        return _items.value
+            .asSequence()
+            .filter { !it.handled && it.app == app }
+            .filter { maxAgeMs <= 0 || now - it.arrivedAt <= maxAgeMs }
+            .maxByOrNull { it.arrivedAt }
+    }
+
     suspend fun add(
         context: Context,
         app: String,

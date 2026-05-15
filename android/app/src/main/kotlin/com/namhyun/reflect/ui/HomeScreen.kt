@@ -62,6 +62,22 @@ fun HomeScreen() {
     val activity = context as? Activity
     val scope = rememberCoroutineScope()
 
+    // 부트스트랩 미완료 시 BootstrapScreen 보여주기
+    var showBootstrap by remember { mutableStateOf(!BootstrapPrefs.isDone(context)) }
+    var showLearning by remember { mutableStateOf(false) }
+
+    if (showBootstrap) {
+        BootstrapScreen(
+            onDone = { showBootstrap = false },
+            onSkip = { showBootstrap = false },
+        )
+        return
+    }
+    if (showLearning) {
+        LearningScreen(onBack = { showLearning = false })
+        return
+    }
+
     var notif by remember { mutableStateOf(Permissions.isNotificationListenerEnabled(context)) }
     var post by remember { mutableStateOf(Permissions.isPostNotificationsGranted(context)) }
     var battery by remember { mutableStateOf(Permissions.isIgnoringBatteryOptimizations(context)) }
@@ -165,10 +181,41 @@ fun HomeScreen() {
                 )
             }
 
-            // 학습 통계 카드
+            // 학습 통계 카드 — 탭하면 LearningScreen 으로
             stats?.let { s ->
                 item { Spacer(Modifier.height(8.dp)) }
-                item { StatsCard(s) }
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { showLearning = true },
+                    ) {
+                        Column {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                StatItem("총", s.total)
+                                StatItem("이번주", s.thisWeek)
+                                StatItem("오늘", s.today)
+                                Icon(
+                                    Icons.Rounded.ArrowForward,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.outline,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                            Text(
+                                "딥러닝 진행도 보기 →",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(start = 18.dp, bottom = 12.dp),
+                            )
+                        }
+                    }
+                }
             }
 
             // Inbox + 학습 추가 버튼

@@ -30,7 +30,9 @@ export async function fetchLatestVersion(env: Env): Promise<VersionResponse> {
     'Accept': 'application/vnd.github+json',
   };
   if (env.GITHUB_TOKEN) headers['Authorization'] = `Bearer ${env.GITHUB_TOKEN}`;
-  const res = await fetch(url, { headers, cache: 'no-store' });
+  // CF Workers Request 타입엔 'cache' 가 없음 — fetch 옵션에서 빼고 헤더로 우회.
+  headers['Cache-Control'] = 'no-store';
+  const res = await fetch(url, { headers });
   if (!res.ok) throw new Error(`GitHub API ${res.status}: ${await res.text()}`);
   const release = (await res.json()) as GhRelease;
 

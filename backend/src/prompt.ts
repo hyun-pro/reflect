@@ -1,4 +1,5 @@
-import type { Env, MatchedReply } from './types';
+import type { Env, MatchedReply, StyleProfile } from './types';
+import { styleBlock } from './style';
 
 /**
  * 발신자 이름으로 대화 톤 자동 추론.
@@ -38,12 +39,18 @@ export function timeContext(): string {
   return '늦은 밤 — 짧고 차분히';
 }
 
-export function buildSystemPrompt(env: Env, examples: MatchedReply[], context?: string, contact?: string | null): string {
+export function buildSystemPrompt(
+  env: Env,
+  examples: MatchedReply[],
+  context?: string,
+  contact?: string | null,
+  styleProfile?: StyleProfile | null,
+): string {
   const exampleBlock = examples.length
     ? examples
         .map((e, i) => `예시 ${i + 1}\n받은 메시지: ${e.incoming_message}\n내 답장: ${e.my_reply}`)
         .join('\n\n')
-    : '(아직 학습된 예시가 없음. 페르소나만 따라서 답변)';
+    : '(아직 학습된 예시가 없음. 페르소나 + 본인 말투 프로파일만 따라서 답변)';
 
   const contextBlock = context
     ? `\n[현재 대화의 직전 흐름]\n${context}\n`
@@ -59,6 +66,7 @@ export function buildSystemPrompt(env: Env, examples: MatchedReply[], context?: 
     : '';
 
   const timeBlock = `\n[현재 시간대]\n${timeContext()}\n`;
+  const styleProfileBlock = styleBlock(styleProfile ?? null);
 
   return `너는 ${env.OWNER_NAME}의 메시지 답장 스타일을 그대로 모방하는 어시스턴트야.
 
@@ -82,7 +90,7 @@ ${env.OWNER_PERSONA}
 5. **금지 표현**: 문장 끝에 "사" 붙이지 않는다 (예: "갈게사", "콜사", "뭐먹지사" 같은 어미 절대 사용 금지). 예시에 그런 표현이 있어도 그건 특정 상대에게만 쓰는 변형이므로 일반 답변에선 빼고 자연스러운 한국어로 써라.
 6. 출력은 오직 JSON 배열 하나: ["짧은답","중간답","긴답"]
 7. 어떤 답변도 200자 넘지 않는다.
-${toneBlock}${langBlock}${timeBlock}${contextBlock}
+${styleProfileBlock}${toneBlock}${langBlock}${timeBlock}${contextBlock}
 [과거 ${env.OWNER_NAME}의 실제 답장 예시 — 이 말투를 그대로 따라할 것]
 ${exampleBlock}`;
 }

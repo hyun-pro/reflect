@@ -100,3 +100,141 @@ create policy "service_role_only_suggestions" on suggestions
   for all
   using (auth.role() = 'service_role')
   with check (auth.role() = 'service_role');
+
+-- ============================================================================
+-- 7. 스타일 프로파일 (콜드 스타트: 페어 0개여도 본인 톤 흉내)
+--    단일 사용자 앱이라 row 1개. owner='self' 고정.
+-- ============================================================================
+create table if not exists style_profile (
+  owner text primary key default 'self',
+
+  -- 부트스트랩 인터뷰 원본 답변 (8-10문항)
+  bootstrap_answers jsonb,             -- {"avg_length": "...", "emoji_freq": "...", ...}
+
+  -- 자동 추출 통계 (Worker가 페어 누적 시 주기적으로 갱신)
+  avg_reply_chars int,                 -- 평균 답장 글자수
+  emoji_per_100 int,                   -- 100자당 이모지 개수
+  laughter_ratio real,                 -- ㅋㅋ/ㅎㅎ 등장 비율 (0~1)
+  banmal_ratio real,                   -- 반말 비율 (0~1, 휴리스틱)
+  top_endings jsonb,                   -- 자주 쓰는 종결어미 top 20 [{e:"~지", c:42}, ...]
+  top_phrases jsonb,                   -- 자주 쓰는 짧은 표현 top 20
+
+  -- 시스템 프롬프트에 그대로 박을 자연어 요약 (Claude 가 페어로부터 생성)
+  style_summary text,
+
+  bootstrap_at timestamptz,
+  auto_extracted_at timestamptz,
+  updated_at timestamptz default now()
+);
+
+alter table style_profile enable row level security;
+drop policy if exists "service_role_only_style" on style_profile;
+create policy "service_role_only_style" on style_profile
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+-- ============================================================================
+-- 8. 학습 실행 이력 (DPO 페어가 이걸 FK 참조하므로 먼저 정의)
+-- ============================================================================
+create table if not exists training_runs (
+  id bigserial primary key,
+  status text not null default 'queued',   -- queued|running|succeeded|failed|cancelled
+
+  base_model text not null,                 -- 'Qwen/Qwen2.5-7B-Instruct' 등
+  adapter_name text,                        -- Together AI 에 등록된 어댑터 이름
+
+  pair_count_at_start int not null,
+  dpo_count_at_start int not null,
+
+  -- 학습 하이퍼파라미터 스냅샷
+  hparams jsonb,                            -- {lr, epochs, lora_r, lora_alpha, ...}
+
+  -- 학습 후 자동 평가
+  eval_holdout_count int,
+  eval_score real,                          -- 0~1, 높을수록 본인 톤 가까움
+  eval_details jsonb,
+
+  -- 외부 추적
+  modal_run_id text,                        -- Modal job id
+  together_ft_id text,                      -- Together AI fine-tune id
+
+  started_at timestamptz default now(),
+  finished_at timestamptz,
+  error text
+);
+create index if not exists training_runs_status_idx on training_runs (status);
+create index if not exists training_runs_started_idx on training_runs (started_at desc);
+
+alter table training_runs enable row level security;
+drop policy if exists "service_role_only_runs" on training_runs;
+create policy "service_role_only_runs" on training_runs
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+-- ============================================================================
+-- 9. DPO 페어 (추천 거절 + 사용자가 실제로 친 답장 = 강력한 학습 신호)
+--    LoRA + DPO 학습 시 (rejected, chosen) 페어로 사용.
+-- ============================================================================
+create table if not exists dpo_pairs (
+  id bigserial primary key,
+  app text not null,
+  contact text,
+  relationship text,
+
+  incoming_message text not null,
+  rejected_suggestions jsonb not null,  -- 모델이 추천했지만 거절된 후보들
+  chosen_reply text not null,           -- 사용자가 실제로 친 답장
+
+  conversation_context text,
+  reply_at timestamptz,
+  embedding vector(1024),                -- incoming 기반 (replies 와 호환)
+
+  -- 거절 강도: edit_distance / max(len(rejected), len(chosen))
+  divergence real,
+
+  consumed_by bigint references training_runs(id) on delete set null,
+  created_at timestamptz default now()
+);
+create index if not exists dpo_pairs_created_idx on dpo_pairs (created_at desc);
+create index if not exists dpo_pairs_consumed_idx on dpo_pairs (consumed_by);
+
+alter table dpo_pairs enable row level security;
+drop policy if exists "service_role_only_dpo" on dpo_pairs;
+create policy "service_role_only_dpo" on dpo_pairs
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+-- ============================================================================
+-- 10. 단일 활성 어댑터 포인터 (1개 row)
+-- ============================================================================
+create table if not exists active_adapter (
+  owner text primary key default 'self',
+  training_run_id bigint references training_runs(id) on delete set null,
+  adapter_name text,
+  activated_at timestamptz default now()
+);
+
+alter table active_adapter enable row level security;
+drop policy if exists "service_role_only_active" on active_adapter;
+create policy "service_role_only_active" on active_adapter
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+-- ============================================================================
+-- 11. 빠른 카운트 RPC (대시보드 + 학습 트리거 검사용)
+-- ============================================================================
+create or replace function reflect_counts()
+returns table (pair_count bigint, dpo_count bigint, last_run_pair_count int, last_run_at timestamptz)
+language sql stable as $$
+  select
+    (select count(*) from replies)::bigint as pair_count,
+    (select count(*) from dpo_pairs)::bigint as dpo_count,
+    (select pair_count_at_start from training_runs where status='succeeded'
+       order by finished_at desc nulls last limit 1) as last_run_pair_count,
+    (select finished_at from training_runs where status='succeeded'
+       order by finished_at desc nulls last limit 1) as last_run_at;
+$$;

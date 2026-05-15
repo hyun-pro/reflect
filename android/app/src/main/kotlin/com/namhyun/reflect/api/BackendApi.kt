@@ -117,4 +117,88 @@ object BackendApi {
             }
         }
     }
+
+    // ─── Style profile ──────────────────────────────────────────────────────
+    suspend fun getStyle(): Result<StyleProfile> = withContext(Dispatchers.IO) {
+        if (apiKey.isEmpty()) return@withContext Result.failure(IllegalStateException("API_KEY missing"))
+        val request = Request.Builder()
+            .url("$baseUrl/api/style")
+            .header("X-API-Key", apiKey)
+            .get()
+            .build()
+        runCatching {
+            client.newCall(request).execute().use { resp ->
+                val raw = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) error("style ${resp.code}")
+                json.decodeFromString<StyleProfile>(raw)
+            }
+        }
+    }
+
+    suspend fun postBootstrap(answers: BootstrapAnswers): Result<StyleProfile> = withContext(Dispatchers.IO) {
+        if (apiKey.isEmpty()) return@withContext Result.failure(IllegalStateException("API_KEY missing"))
+        val body = json.encodeToString(BootstrapRequest(answers)).toRequestBody(JSON)
+        val request = Request.Builder()
+            .url("$baseUrl/api/style/bootstrap")
+            .header("X-API-Key", apiKey)
+            .post(body)
+            .build()
+        runCatching {
+            client.newCall(request).execute().use { resp ->
+                val raw = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) error("bootstrap ${resp.code}: $raw")
+                json.decodeFromString<StyleProfile>(raw)
+            }
+        }
+    }
+
+    // ─── Feedback (DPO) ─────────────────────────────────────────────────────
+    suspend fun feedbackReject(req: FeedbackRejectRequest): Result<Unit> = withContext(Dispatchers.IO) {
+        if (apiKey.isEmpty()) return@withContext Result.failure(IllegalStateException("API_KEY missing"))
+        val body = json.encodeToString(req).toRequestBody(JSON)
+        val request = Request.Builder()
+            .url("$baseUrl/api/feedback/reject")
+            .header("X-API-Key", apiKey)
+            .post(body)
+            .build()
+        runCatching {
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) error("feedback ${resp.code}")
+            }
+        }
+    }
+
+    // ─── Training ──────────────────────────────────────────────────────────
+    suspend fun trainingStatus(): Result<TrainingStatusResponse> = withContext(Dispatchers.IO) {
+        if (apiKey.isEmpty()) return@withContext Result.failure(IllegalStateException("API_KEY missing"))
+        val request = Request.Builder()
+            .url("$baseUrl/api/training/status")
+            .header("X-API-Key", apiKey)
+            .get()
+            .build()
+        runCatching {
+            client.newCall(request).execute().use { resp ->
+                val raw = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) error("training status ${resp.code}")
+                json.decodeFromString<TrainingStatusResponse>(raw)
+            }
+        }
+    }
+
+    suspend fun triggerTraining(force: Boolean = false): Result<TrainingTriggerResponse> = withContext(Dispatchers.IO) {
+        if (apiKey.isEmpty()) return@withContext Result.failure(IllegalStateException("API_KEY missing"))
+        val body = json.encodeToString(mapOf("force" to force)).toRequestBody(JSON)
+        val request = Request.Builder()
+            .url("$baseUrl/api/training/trigger")
+            .header("X-API-Key", apiKey)
+            .post(body)
+            .build()
+        runCatching {
+            client.newCall(request).execute().use { resp ->
+                val raw = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) error("trigger ${resp.code}: $raw")
+                json.decodeFromString<TrainingTriggerResponse>(raw)
+            }
+        }
+    }
 }

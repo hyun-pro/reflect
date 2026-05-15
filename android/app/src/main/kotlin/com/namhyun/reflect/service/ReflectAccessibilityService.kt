@@ -4,7 +4,9 @@ import android.accessibilityservice.AccessibilityService
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.namhyun.reflect.api.BackendApi
+import com.namhyun.reflect.api.FeedbackRejectRequest
 import com.namhyun.reflect.api.IngestRequest
+import com.namhyun.reflect.data.InboxRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -77,11 +79,41 @@ class ReflectAccessibilityService : AccessibilityService() {
 
     private fun ingest(pkg: String, text: String) {
         if (text.length < 2 || text.length > 500) return
+        val app = TargetApps.appKey(pkg)
         scope.launch {
+            // 5분 이내 같은 앱의 가장 최근 미처리 추천이 있으면 DPO 페어로 처리.
+            // 사용자가 추천을 보지 않고(또는 봤어도 무시하고) 본인이 직접 친 답이라는 강력한 신호.
+            val recent = runCatching {
+                InboxRepository.findMostRecentPending(applicationContext, app, 5 * 60 * 1000L)
+            }.getOrNull()
+
+            if (recent != null) {
+                val suggestions = runCatching {
+                    InboxRepository.parseSuggestions(recent.suggestionsJson)
+                }.getOrDefault(emptyList())
+                try {
+                    BackendApi.feedbackReject(
+                        FeedbackRejectRequest(
+                            app = app,
+                            contact = recent.contact,
+                            incoming_message = recent.incoming,
+                            rejected_suggestions = suggestions,
+                            chosen_reply = text,
+                        )
+                    )
+                    runCatching { InboxRepository.markHandled(applicationContext, recent.id) }
+                    Log.i(TAG, "DPO captured for ${recent.contact}: ${text.take(40)}...")
+                    return@launch
+                } catch (e: Throwable) {
+                    Log.w(TAG, "feedback failed, falling back to plain ingest", e)
+                }
+            }
+
+            // 폴백: 매핑 안 되면 일반 ingest (incoming 모르므로 placeholder)
             runCatching {
                 BackendApi.ingest(
                     IngestRequest(
-                        app = TargetApps.appKey(pkg),
+                        app = app,
                         contact = null,
                         incoming_message = "(접근성 자동 학습)",
                         my_reply = text,
