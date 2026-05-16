@@ -28,8 +28,8 @@ android {
         applicationId = "com.namhyun.reflect"
         minSdk = 26
         targetSdk = 35
-        versionCode = 207
-        versionName = "0.2.7"
+        versionCode = 208
+        versionName = "0.2.8"
 
         val backendUrl = localProp("REFLECT_BACKEND_URL", "https://reflect-backend.hyun-752.workers.dev")
         val apiKey = localProp("REFLECT_API_KEY", "")
