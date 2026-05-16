@@ -129,6 +129,7 @@ fun HomeScreen() {
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
+      Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars),
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
@@ -249,28 +250,6 @@ fun HomeScreen() {
             item { InboxList() }
 
             item { Spacer(Modifier.height(24.dp)) }
-            if (showAddLearn) {
-                item {
-                    AddLearnDialog(
-                        onDismiss = { showAddLearn = false },
-                        onConfirm = { incoming, reply ->
-                            showAddLearn = false
-                            scope.launch {
-                                runCatching {
-                                    com.namhyun.reflect.api.BackendApi.ingest(
-                                        com.namhyun.reflect.api.IngestRequest(
-                                            app = "manual",
-                                            incoming_message = incoming,
-                                            my_reply = reply,
-                                        )
-                                    )
-                                }
-                                android.widget.Toast.makeText(context, "학습됨", android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                    )
-                }
-            }
             item {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -290,6 +269,30 @@ fun HomeScreen() {
                 }
             }
         }
+
+        // 다이얼로그는 LazyColumn 밖 — 안에 두면 스크롤로 안 보일 때
+        // 컴포즈 자체가 안 돼서 "+ 학습" 버튼이 안 먹는 버그가 있었음.
+        if (showAddLearn) {
+            AddLearnDialog(
+                onDismiss = { showAddLearn = false },
+                onConfirm = { incoming, reply ->
+                    showAddLearn = false
+                    scope.launch {
+                        runCatching {
+                            com.namhyun.reflect.api.BackendApi.ingest(
+                                com.namhyun.reflect.api.IngestRequest(
+                                    app = "manual",
+                                    incoming_message = incoming,
+                                    my_reply = reply,
+                                )
+                            )
+                        }
+                        android.widget.Toast.makeText(context, "학습됨", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                },
+            )
+        }
+      }
     }
 }
 

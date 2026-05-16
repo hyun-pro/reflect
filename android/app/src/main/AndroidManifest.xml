@@ -127,6 +127,11 @@
             android:name=".service.CopyToClipboardReceiver"
             android:exported="false" />
 
+        <!-- PackageInstaller 세션 설치 상태 콜백 (자동 업데이트) -->
+        <receiver
+            android:name=".update.UpdateChecker$InstallResultReceiver"
+            android:exported="false" />
+
         <!-- APK 다운로드 후 설치 시 FileProvider 필요 -->
         <provider
             android:name="androidx.core.content.FileProvider"
