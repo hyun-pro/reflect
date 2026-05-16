@@ -43,15 +43,13 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -68,14 +66,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
-
-/** 스와이프로 무시/처리됨 한 그룹의 일시적 실행취소 레코드. */
-private data class DismissedRec(
-    val key: String,
-    val ids: List<Long>,
-    val contact: String,
-    val label: String,
-)
 
 @Composable
 fun InboxList(modifier: Modifier = Modifier) {
@@ -96,91 +86,23 @@ fun InboxList(modifier: Modifier = Modifier) {
 
     val hasAnyMessages = remember(items) { items.any { !it.handled } }
 
-    val scope = rememberCoroutineScope()
-    // 스와이프로 막 무시/처리한 그룹들 — 일정 시간 실행취소 가능.
-    val dismissed = remember { mutableStateListOf<DismissedRec>() }
-    val dismissedIds = remember(dismissed.toList()) { dismissed.flatMap { it.ids }.toSet() }
-
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (hasAnyMessages || dismissed.isNotEmpty()) {
+        if (hasAnyMessages) {
             SearchBar(query = query, onChange = { query = it })
         }
 
-        // 방금 무시/처리한 항목은 실행취소 바로 같은 자리에 잠깐 남는다.
-        dismissed.forEach { rec ->
-            UndoBar(
-                rec = rec,
-                onUndo = {
-                    dismissed.remove(rec)
-                    scope.launch {
-                        runCatching { InboxRepository.unmarkGroupHandled(context, rec.ids) }
-                    }
-                },
-                onExpire = { dismissed.remove(rec) },
-            )
-        }
-
-        if (groups.isEmpty() && dismissed.isEmpty()) {
+        if (groups.isEmpty()) {
             EmptyInbox(searching = query.isNotBlank())
         } else {
-            // 이미 실행취소 바로 표시 중인 그룹은 카드에서 제외(중복 방지).
-            groups.filterNot { g -> g.ids.any { it in dismissedIds } }
-                .forEach { group ->
-                    SwipeableCard(group) { label ->
-                        // 같은 그룹 중복 등록 방어 (실행취소 바 2개 방지).
-                        if (dismissed.none { it.ids == group.ids }) {
-                            scope.launch { runCatching { InboxRepository.markGroupHandled(context, group.ids) } }
-                            dismissed.add(
-                                DismissedRec(
-                                    key = group.ids.joinToString(",") + ":" + System.currentTimeMillis(),
-                                    ids = group.ids,
-                                    contact = group.contact,
-                                    label = label,
-                                )
-                            )
-                        }
-                    }
+            groups.forEach { group ->
+                // 대화별 안정적 컴포저블 정체성 — 새 메시지로 재정렬돼도
+                // 실행취소 대기 상태가 엉뚱한 카드로 넘어가지 않게.
+                key(group.app, group.contact) {
+                    SwipeableCard(group)
                 }
-        }
-    }
-}
-
-@Composable
-private fun UndoBar(
-    rec: DismissedRec,
-    onUndo: () -> Unit,
-    onExpire: () -> Unit,
-) {
-    LaunchedEffect(rec.key) {
-        delay(5_000)
-        onExpire()
-    }
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "${rec.contact} · ${rec.label}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = onUndo) {
-                Text(
-                    "실행취소",
-                    color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                )
             }
         }
     }
@@ -188,31 +110,41 @@ private fun UndoBar(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SwipeableCard(group: InboxGroup, onDismiss: (label: String) -> Unit) {
-    // confirmValueChange 는 스와이프 한 번에도 여러 번 호출될 수 있어
-    // 여기서 onDismiss 를 직접 부르면 실행취소 바가 중복 생성된다.
-    // → confirmValueChange 는 "허용 여부"만 반환(순수)하고, 실제 dismiss
-    //   side-effect 는 currentValue 가 확정될 때 정확히 1회만 실행.
+private fun SwipeableCard(group: InboxGroup) {
+    val context = LocalContext.current.applicationContext
+    // 스와이프 후 "실행취소" 대기. 저장소를 거치지 않는 순수 로컬 상태라
+    // 실행취소는 즉시·확실하게 카드를 되돌린다(왕복 race 없음). 카드는
+    // 사라지지 않고 그 자리에서 실행취소 칸으로 바뀌었다가 되돌아온다.
+    var pendingLabel by remember(group.app, group.contact) { mutableStateOf<String?>(null) }
+
+    val label = pendingLabel
+    if (label != null) {
+        // 5초간 실행취소 없으면 그때 진짜 처리(handled) → 목록에서 빠짐.
+        LaunchedEffect(group.contact, group.app, label) {
+            delay(5_000)
+            runCatching { InboxRepository.markGroupHandled(context, group.ids) }
+        }
+        UndoPlaceholder(
+            contact = group.contact,
+            label = label,
+            onUndo = { pendingLabel = null },
+        )
+        return
+    }
+
     val state = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value -> value != SwipeToDismissBoxValue.Settled },
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> if (pendingLabel == null) pendingLabel = "처리됨"
+                SwipeToDismissBoxValue.EndToStart -> if (pendingLabel == null) pendingLabel = "무시됨"
+                SwipeToDismissBoxValue.Settled -> {}
+            }
+            // 실제로 dismiss 시키지 않는다 — 카드 자리를 유지한 채
+            // UndoPlaceholder 로 교체하므로 항상 false.
+            false
+        },
         positionalThreshold = { it * 0.4f },
     )
-    val onDismissState = rememberUpdatedState(onDismiss)
-    var fired by remember(group.ids) { mutableStateOf(false) }
-    LaunchedEffect(state) {
-        snapshotFlow { state.currentValue }.collect { value ->
-            if (fired) return@collect
-            val label = when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> "처리됨"
-                SwipeToDismissBoxValue.EndToStart -> "무시됨"
-                else -> null
-            }
-            if (label != null) {
-                fired = true
-                onDismissState.value(label)
-            }
-        }
-    }
     SwipeToDismissBox(
         state = state,
         backgroundContent = {
@@ -250,6 +182,36 @@ private fun SwipeableCard(group: InboxGroup, onDismiss: (label: String) -> Unit)
         },
         content = { ConversationCard(group) },
     )
+}
+
+@Composable
+private fun UndoPlaceholder(contact: String, label: String, onUndo: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "$contact · $label",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onUndo) {
+                Text(
+                    "실행취소",
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                )
+            }
+        }
+    }
 }
 
 @Composable
