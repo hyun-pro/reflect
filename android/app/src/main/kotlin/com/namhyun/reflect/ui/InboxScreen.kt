@@ -48,8 +48,10 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -128,15 +130,18 @@ fun InboxList(modifier: Modifier = Modifier) {
             groups.filterNot { g -> g.ids.any { it in dismissedIds } }
                 .forEach { group ->
                     SwipeableCard(group) { label ->
-                        scope.launch { runCatching { InboxRepository.markGroupHandled(context, group.ids) } }
-                        dismissed.add(
-                            DismissedRec(
-                                key = group.ids.joinToString(",") + ":" + System.currentTimeMillis(),
-                                ids = group.ids,
-                                contact = group.contact,
-                                label = label,
+                        // 같은 그룹 중복 등록 방어 (실행취소 바 2개 방지).
+                        if (dismissed.none { it.ids == group.ids }) {
+                            scope.launch { runCatching { InboxRepository.markGroupHandled(context, group.ids) } }
+                            dismissed.add(
+                                DismissedRec(
+                                    key = group.ids.joinToString(",") + ":" + System.currentTimeMillis(),
+                                    ids = group.ids,
+                                    contact = group.contact,
+                                    label = label,
+                                )
                             )
-                        )
+                        }
                     }
                 }
         }
@@ -184,16 +189,30 @@ private fun UndoBar(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SwipeableCard(group: InboxGroup, onDismiss: (label: String) -> Unit) {
+    // confirmValueChange 는 스와이프 한 번에도 여러 번 호출될 수 있어
+    // 여기서 onDismiss 를 직접 부르면 실행취소 바가 중복 생성된다.
+    // → confirmValueChange 는 "허용 여부"만 반환(순수)하고, 실제 dismiss
+    //   side-effect 는 currentValue 가 확정될 때 정확히 1회만 실행.
     val state = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> { onDismiss("처리됨"); true }
-                SwipeToDismissBoxValue.EndToStart -> { onDismiss("무시됨"); true }
-                else -> false
-            }
-        },
+        confirmValueChange = { value -> value != SwipeToDismissBoxValue.Settled },
         positionalThreshold = { it * 0.4f },
     )
+    val onDismissState = rememberUpdatedState(onDismiss)
+    var fired by remember(group.ids) { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        snapshotFlow { state.currentValue }.collect { value ->
+            if (fired) return@collect
+            val label = when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> "처리됨"
+                SwipeToDismissBoxValue.EndToStart -> "무시됨"
+                else -> null
+            }
+            if (label != null) {
+                fired = true
+                onDismissState.value(label)
+            }
+        }
+    }
     SwipeToDismissBox(
         state = state,
         backgroundContent = {
