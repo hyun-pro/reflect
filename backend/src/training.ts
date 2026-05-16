@@ -75,6 +75,7 @@ export async function getTrainingStatus(env: Env): Promise<TrainingStatusRespons
     delta_pairs: deltaPairs,
     ready_to_train: readyToTrain && !inFlightRes.data,
     next_threshold: nextThreshold,
+    training_enabled: Boolean(env.MODAL_TRIGGER_URL && env.MODAL_TRIGGER_TOKEN),
     in_flight: (inFlightRes.data as TrainingRun) ?? null,
     latest: (latestRes.data as TrainingRun) ?? null,
   };

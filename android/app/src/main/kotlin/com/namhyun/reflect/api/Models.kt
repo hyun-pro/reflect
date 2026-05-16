@@ -117,6 +117,7 @@ data class TrainingStatusResponse(
     val delta_pairs: Int,
     val ready_to_train: Boolean,
     val next_threshold: Int,
+    val training_enabled: Boolean = false,
     val in_flight: TrainingRun? = null,
     val latest: TrainingRun? = null,
 )

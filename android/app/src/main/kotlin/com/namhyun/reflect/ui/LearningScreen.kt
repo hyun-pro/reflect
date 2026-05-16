@@ -28,7 +28,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -107,6 +106,9 @@ fun LearningScreen(onBack: () -> Unit) {
                 item { ProgressGauge(s) }
                 item { ModelStateCard(s) }
                 item { CountsRow(s) }
+                if (!s.training_enabled) {
+                    item { InfraNotConnectedCard() }
+                }
                 s.in_flight?.let { run ->
                     item { InFlightCard(run) }
                 }
@@ -115,69 +117,45 @@ fun LearningScreen(onBack: () -> Unit) {
                         item { LastRunCard(latest) }
                     }
                 }
-                item {
-                    Spacer(Modifier.height(8.dp))
-                    Button(
-                        onClick = {
-                            if (triggering) return@Button
-                            triggering = true
-                            triggerMsg = null
-                            scope.launch {
-                                val r = BackendApi.triggerTraining(force = false)
-                                triggering = false
-                                triggerMsg = r.fold(
-                                    onSuccess = { res ->
-                                        if (res.ok) "학습 큐 등록됨 (run #${res.run_id})"
-                                        else "트리거 실패: ${res.reason}"
-                                    },
-                                    onFailure = { "요청 실패: ${it.message}" },
-                                )
-                                refresh()
-                            }
-                        },
-                        enabled = !triggering && s.ready_to_train && s.in_flight == null,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                        ),
-                    ) {
-                        Text(
-                            if (s.in_flight != null) "학습 진행 중"
-                            else if (s.ready_to_train) "지금 학습 시작"
-                            else "데이터 더 모이면 자동 학습",
-                            color = MaterialTheme.colorScheme.onPrimary,
-                        )
-                    }
-                    triggerMsg?.let {
-                        Spacer(Modifier.height(6.dp))
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    if (!s.ready_to_train && s.in_flight == null) {
-                        Spacer(Modifier.height(4.dp))
-                        TextButton(
+                // 학습 트리거 버튼은 인프라(Modal)가 실제로 연결돼 있을 때만.
+                // 안 그러면 눌러도 큐만 쌓이고 학습이 안 돌아 사용자를 속이게 됨.
+                if (s.training_enabled) {
+                    item {
+                        Spacer(Modifier.height(8.dp))
+                        Button(
                             onClick = {
-                                if (triggering) return@TextButton
+                                if (triggering) return@Button
                                 triggering = true
                                 triggerMsg = null
                                 scope.launch {
-                                    val r = BackendApi.triggerTraining(force = true)
+                                    val r = BackendApi.triggerTraining(force = false)
                                     triggering = false
                                     triggerMsg = r.fold(
                                         onSuccess = { res ->
-                                            if (res.ok) "강제 트리거됨 (run #${res.run_id})"
-                                            else "실패: ${res.reason}"
+                                            if (res.ok) "학습 큐 등록됨 (run #${res.run_id})"
+                                            else "트리거 실패: ${res.reason}"
                                         },
                                         onFailure = { "요청 실패: ${it.message}" },
                                     )
                                     refresh()
                                 }
-                            }
+                            },
+                            enabled = !triggering && s.ready_to_train && s.in_flight == null,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                            ),
                         ) {
                             Text(
-                                "데이터 부족해도 강제 학습 (테스트용)",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline,
+                                if (s.in_flight != null) "학습 진행 중"
+                                else if (s.ready_to_train) "지금 학습 시작"
+                                else "데이터 더 모이면 자동 학습",
+                                color = MaterialTheme.colorScheme.onPrimary,
                             )
+                        }
+                        triggerMsg?.let {
+                            Spacer(Modifier.height(6.dp))
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -262,12 +240,13 @@ private fun ModelStateCard(s: TrainingStatusResponse) {
         )
         s.pair_count >= 30 -> Triple(
             "RAG + 스타일 프로파일",
-            "본인 답장을 RAG 로 흉내내는 중. 1000페어 모이면 자동 파인튜닝.",
+            if (s.training_enabled) "본인 답장을 RAG 로 흉내내는 중. 1000페어 모이면 자동 파인튜닝."
+            else "본인 답장을 RAG + 말투 프로파일로 흉내내는 중. (딥러닝 인프라 연결 시 파인튜닝)",
             MaterialTheme.colorScheme.onSurfaceVariant,
         )
         else -> Triple(
             "콜드 스타트",
-            "부트스트랩 답변만으로 추천 중. 답장이 쌓일수록 정확해짐.",
+            "부트스트랩 답변 + 말투 프로파일로 추천 중. 답장이 쌓일수록 정확해짐.",
             MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -289,6 +268,33 @@ private fun ModelStateCard(s: TrainingStatusResponse) {
             Spacer(Modifier.height(4.dp))
             Text(
                 desc,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun InfraNotConnectedCard() {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+            Text(
+                "지금은 데이터 수집 · RAG 단계",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "위 페어/DPO 수치는 실제로 쌓이는 진짜 데이터예요. 답장할수록 " +
+                    "RAG + 말투 프로파일로 점점 본인 톤에 가까워집니다.\n\n" +
+                    "딥러닝 파인튜닝(본인 전용 모델)은 별도 GPU 인프라(Modal/HuggingFace/" +
+                    "Together) 연결이 필요해 아직 켜져 있지 않아요. 페어 1000개쯤 모이고 " +
+                    "인프라를 연결하면 그때부터 자동 학습이 돕니다. 지금 따로 하실 건 없어요.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

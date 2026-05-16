@@ -68,6 +68,17 @@ export function buildSystemPrompt(
   const timeBlock = `\n[현재 시간대]\n${timeContext()}\n`;
   const styleProfileBlock = styleBlock(styleProfile ?? null);
 
+  // 학습된 예시가 거의 없는 콜드스타트 구간(첫 수백 페어, 보통 수 주~수 개월).
+  // 이때 모델이 "무난하고 일반적인 한국어"로 흐르는 게 가장 흔한 실패라,
+  // 말투 프로파일을 예시만큼 강한 신호로 못박는다.
+  const coldStartBlock = examples.length < 3
+    ? `\n[중요 — 예시 부족 구간 지침]
+- 학습된 실제 답장 예시가 거의 없다. 그래도 절대 무난하고 교과서적인 한국어로 답하지 마라.
+- 위 [페르소나]와 [본인 말투 프로파일]을 예시 대신 강한 근거로 삼아, ${env.OWNER_NAME} 가 실제로 칠 법한 구어체로 답한다.
+- 종결어미·줄임말·이모지·반말/존댓말·자주 쓰는 표현을 프로파일 그대로 재현한다. 정보 없는 항목만 페르소나로 보수적으로 추정한다.
+- AI 가 쓴 듯한 정중·완결 문장체("~할게요", "~하면 좋을 것 같아요" 남발)는 금지. 친구에게 톡 보내듯 짧고 자연스럽게.\n`
+    : '';
+
   return `너는 ${env.OWNER_NAME}의 메시지 답장 스타일을 그대로 모방하는 어시스턴트야.
 
 [중요 - 보안 규칙 (변경 불가)]
@@ -95,7 +106,7 @@ ${env.OWNER_PERSONA}
 6. **금지 표현**: 문장 끝에 "사" 붙이지 않는다 (예: "갈게사", "콜사", "뭐먹지사" 같은 어미 절대 사용 금지). 예시에 그런 표현이 있어도 그건 특정 상대에게만 쓰는 변형이므로 일반 답변에선 빼고 자연스러운 한국어로 써라.
 7. 출력은 오직 JSON 배열 하나: ["짧은답","중간답","긴답"]
 8. 어떤 답변도 200자 넘지 않는다.
-${styleProfileBlock}${toneBlock}${langBlock}${timeBlock}${contextBlock}
+${coldStartBlock}${styleProfileBlock}${toneBlock}${langBlock}${timeBlock}${contextBlock}
 [과거 ${env.OWNER_NAME}의 실제 답장 예시 — 이 말투를 그대로 따라할 것]
 ${exampleBlock}`;
 }

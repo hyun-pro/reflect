@@ -41,6 +41,9 @@ class ReflectAccessibilityService : AccessibilityService() {
     // ── 학습 캐치용 상태 (기존)
     @Volatile private var lastInput: String = ""
     @Volatile private var lastInputAt: Long = 0L
+    // 같은 답장이 전송클릭+입력창비움 두 경로로 2번 학습되는 것 방지.
+    @Volatile private var lastIngestedText: String = ""
+    @Volatile private var lastIngestedAt: Long = 0L
 
     // ── 오버레이용 상태
     @Volatile private var currentPkg: String? = null
@@ -358,8 +361,18 @@ class ReflectAccessibilityService : AccessibilityService() {
         return null
     }
 
-    private fun ingest(pkg: String, text: String) {
+    private fun ingest(pkg: String, rawText: String) {
+        val text = rawText.trim()
         if (text.length < 2 || text.length > 500) return
+        // 전송 버튼 클릭(TYPE_VIEW_CLICKED)과 입력창 비워짐(TYPE_VIEW_TEXT_CHANGED)이
+        // 같은 답장에 둘 다 발화해 2번 학습되던 버그 방지. 10초 내 동일 텍스트면 스킵.
+        val now = System.currentTimeMillis()
+        if (text == lastIngestedText && now - lastIngestedAt < 10_000) {
+            Log.i(TAG, "dup ingest skipped: ${text.take(30)}")
+            return
+        }
+        lastIngestedText = text
+        lastIngestedAt = now
         val app = TargetApps.appKey(pkg)
         scope.launch {
             val recent = runCatching {

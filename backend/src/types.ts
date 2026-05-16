@@ -145,6 +145,7 @@ export interface TrainingStatusResponse {
   delta_pairs: number;        // 재학습 트리거 (마지막 학습 후 +N)
   ready_to_train: boolean;
   next_threshold: number;     // 사용자가 보는 게이지 목표값
+  training_enabled: boolean;  // Modal 학습 인프라 연결 여부 (false면 페어 수집·RAG 단계)
   in_flight?: TrainingRun | null;
   latest?: TrainingRun | null;
 }
