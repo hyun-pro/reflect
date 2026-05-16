@@ -179,6 +179,19 @@ object InboxRepository {
             persist(context, updated)
         }
     }
+
+    /** 무시/처리됨 스와이프 실행취소 — handled 플래그를 다시 false 로 되돌린다. */
+    suspend fun unmarkGroupHandled(context: Context, ids: List<Long>) {
+        ensureLoaded(context)
+        val idSet = ids.toSet()
+        synchronized(this) {
+            val updated = _items.value.map {
+                if (it.id in idSet) it.copy(handled = false) else it
+            }
+            _items.value = updated
+            persist(context, updated)
+        }
+    }
 }
 
 data class InboxGroup(
