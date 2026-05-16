@@ -88,9 +88,17 @@ class ReflectAccessibilityService : AccessibilityService() {
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 currentPkg = pkg
-                // 채팅방 제목 추출 시도
+                // 같은 메신저라도 현재 화면이 채팅방인지(=입력창 EditText 있나) 검사.
+                // 채팅방 목록·검색·설정 화면이면 EditText 없거나 검색창 1개뿐 → 오버레이 숨김.
+                if (!screenHasReplyInput()) {
+                    currentContact = null
+                    OverlayBus.clearActive()
+                    runCatching { ReflectOverlayService.stop(applicationContext) }
+                    return
+                }
+                // 채팅방 진입 — contact 다시 추출
                 val contact = extractContactName()
-                if (!contact.isNullOrBlank()) currentContact = contact
+                currentContact = contact?.takeIf { it.isNotBlank() }
                 refreshOverlayActive(pkg, currentContact)
             }
             AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
@@ -148,6 +156,41 @@ class ReflectAccessibilityService : AccessibilityService() {
         inputFocused = false
         OverlayBus.clearActive()
         runCatching { ReflectOverlayService.stop(applicationContext) }
+    }
+
+    /**
+     * 현재 화면이 답장 가능한 채팅방인지 휴리스틱:
+     *  - 화면 어딘가에 EditText (또는 isEditable 노드)가 있어야 채팅방으로 간주
+     *  - 단 hint 가 "검색", "search" 같은 거면 검색창이므로 제외
+     *  - DFS 노드 200개 제한 (배터리·CPU)
+     */
+    private fun screenHasReplyInput(): Boolean {
+        val root = runCatching { rootInActiveWindow }.getOrNull() ?: return false
+        try {
+            val stack = ArrayDeque<AccessibilityNodeInfo>()
+            stack.addLast(root)
+            var n = 0
+            while (stack.isNotEmpty() && n < 300) {
+                val node = stack.removeFirst()
+                n++
+                val cls = node.className?.toString().orEmpty()
+                val editable = node.isEditable ||
+                    cls.contains("EditText", ignoreCase = true)
+                if (editable) {
+                    val hint = (node.hintText?.toString() ?: "") + " " +
+                        (node.contentDescription?.toString() ?: "")
+                    val isSearch = hint.contains("검색") ||
+                        hint.contains("search", ignoreCase = true)
+                    if (!isSearch) return true
+                }
+                for (i in 0 until node.childCount) {
+                    node.getChild(i)?.let { stack.addLast(it) }
+                }
+            }
+            return false
+        } finally {
+            runCatching { root.recycle() }
+        }
     }
 
     private fun refreshOverlayActive(pkg: String, contact: String?) {
